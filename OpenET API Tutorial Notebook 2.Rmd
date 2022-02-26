@@ -1,0 +1,62 @@
+---
+title: "Using the OpenET API with R: Tutorial 2"
+author: "Lauren Steely, lsteely@bren.ucsb.edu"
+output:
+  html_document:
+    theme: lumen
+    df_print: paged
+---
+
+## Tutorial 2: Using the raster/multipolygon endpoint
+
+To get started, enter your API key below and run the chunk.
+
+```{r Setup, echo=FALSE, message=FALSE}
+library(httr)      # API tools for R
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, eval = TRUE) # suppress messages in output
+httr::set_config(httr::config(ssl_verifypeer=0L)) # Turn off SSL verify
+  
+api_key = ''
+```
+
+Next, we'll select the *raster/timeseries/multipolygon endpoint*. This is a useful endpoint if you wish to use your own custom area of interest or field boundaries, instead of the built-in field boundaries. To do this, you will need a Google Earth Engine account. In GEE's Asset Manager view, you can upload shapefiles and share them with OpenET. You can then reference their Table ID in the API call.
+
+```{r Select endpoint}
+endpoint <- 'raster/timeseries/multipolygon'       # Set the desired API endpoint
+url <- paste0('https://openet.dri.edu/', endpoint) # Create the URL for the API call
+```
+
+We then create a GET request and submit a list of query parameters, in the form of a named R list. Note that there must be at least one `include_columns` attribute.
+
+```{r Make GET request}
+response <- GET(url, add_headers(accept = "application/json", Authorization = api_key),
+                  query = list(start_date         = '2020-01-01',     # yyyy-mm-dd
+                               end_date           = '2020-12-31',     # yyyy-mm-dd
+                               variable           = 'et',             # et, ndvi, etof, eto, pr
+                               ref_et_source      = 'cimis',          # cimis, gridmet
+                               units              = 'english',        # metric, english
+                               shapefile_asset_id = '',               # Add your GEE asset id here
+                               interval           = 'monthly',        # monthly, daily
+                               include_columns    = '',               # shapefile attributes to include in the csv
+                               filename_suffix    = 'my_file',        # name to append to file
+                               model              = 'ensemble'))      # ensemble, eemetric, ssebop, geesebal, sims, disalexi, ptjpl
+```
+
+Check the status of the request:
+
+``` {r Check request status}
+http_status(response)$message
+```
+
+Next we read the content of the response using the `content` function. Each endpoint returns a slightly different response object, which gets turned into an R list. The raster/timeseries/multipolygon endpoint response contains a `status`, which should say "Queued for timeseries cloud export", and a `bucket_url`, which will be the url of a Google cloud bucket where the data will be available after it has been processed. Notice how we can use some `cat` commends to give some feedback to the user and show them the url.
+
+``` {r Read response}
+content(response)         # view the different parts of the response object
+content(response)$status  # view the status message
+
+response_url <- content(response)$bucket_url  # read the url for the requested data
+cat('When ready, requested data can be accessed at this url:\n')
+cat(response_url)
+```
+
+Note that the url will initially return an error while the data is still being processed. Depending on the number of polygons, it may take minutes to hours for the data to become available.

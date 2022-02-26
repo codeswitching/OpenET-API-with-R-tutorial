@@ -1,0 +1,131 @@
+---
+title: 'Using the OpenET API with R: Tutorial 1'
+author: "Lauren Steely, lsteely@bren.ucsb.edu"
+output:
+  html_document:
+    theme: lumen
+    df_print: paged
+---
+
+## Tutorial 1: Getting started with simple requests
+
+This notebook shows how to access the OpenET API using R scripts. More details about the API can be found at the [API Documentation](https://open-et.github.io/docs/build/html/index.html).
+
+You can run an interactive version of this notebook in RStudio Cloud [here](https://rstudio.cloud/project/3638676). In RStudio, you can edit and run each chunk of code by clicking the green triangles. You can also run each line of code individually by moving the cursor to that line and pressing Ctrl+Enter. When you execute code within the notebook, the results appear beneath the code. Alternatively, you can compile the entire notebook into a readable html document by clicking the Preview button at the top of the script pane and selecting *Knit to HTML* (though you must enter a valid API key for the code to execute properly).
+
+### Authorizing and validating your API key
+
+To get started, enter your API key below. Keys can be obtained at http://auth.etdata.org
+
+```{r Set API key, echo=FALSE}
+api_key = ''
+```
+
+First we'll load in the `httr` library, which contains tools for making API requests, along with some libraries we will use later for cleaning the data.
+
+```{r Load libraries, message=FALSE}
+library(httr)       # API tools for R
+library(tidyverse)  # tidy tools
+library(lubridate)  # tools for working with dates
+
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, eval = TRUE)  # Suppress messages in output
+httr::set_config(httr::config(ssl_verifypeer=0L))  # Turn off SSL_Verify
+```
+
+Next we'll choose an API endpoint and build the URL string for that endpoint. The different endpoint names are provided in the API documentation.
+
+```{r Select endpoint}
+endpoint <- 'home/validate_token'                  # Set the desired API endpoint
+url <- paste0('https://openet.dri.edu/', endpoint) # Create the URL for the API call
+```
+
+Now we build the API request using httr's `GET` function (note that some endpoints use GET and others use POST - check the [FastAPI testbed](https://openet.dri.edu/docs#/) to see which is which. We pass `GET` the url and a header that contains the API key. The API response will be stored in the `response` variable, which will be an R list.
+
+```{r Submit GET request}
+response <- GET(url, add_headers(accept = 'application/json', Authorization = api_key))
+```
+
+While the `response` object is just a list, lists can be awkward to work with in R. `httr` provides some helper functions that let us easily examine the different parts of the response.
+
+For example, we can determine if the request was successful by calling `http_error(response)`. `FALSE` means no errors were returned. `http_status(response)` will provide a more detailed success or error message. If the request was successful, it will return code 200: Success. Other error codes mean the authentication failed or the request was malformed. When writing scripts, these functions can be helpful for error checking. For example, the script might only attempt to process data if the request was successful, otherwise it might give an error message to the user.
+
+```{r Check status of GET request}
+http_error(response)  # Were there any errors? Returns FALSE if successful
+http_status(response) # Show more detailed info about the success or failure
+```
+
+Now let's look at the actual content of the response using the `content()` function. For the `validate_token` endpoint, the content will be a message indicating whether the api_key is valid.
+
+```{r Examine API response}
+content(response)  # Read the body of the response.
+```
+
+### A simple ET data request using POST
+
+This time, we'll choose the *timeseries/features/monthly* endpoint. This endpoint returns a csv file containing monthly et values for a list of chosen fields, over a chosen time period.
+
+```{r}
+endpoint <- 'timeseries/features/monthly'          # Set the desired API endpoint
+url <- paste0('https://openet.dri.edu/', endpoint) # Create the URL for the API call
+```
+
+This endpoint uses POST instead of GET. As before, we pass the URL and a header that contains the api key, but this time we also pass a list of keys and values for the request in the `body =` parameter. `encode = 'json'` tells POST to convert this list to json when it send the request. The parameters required for each endpoint can be found in the API documentation. To see exactly what is being sent when POST is run, you can add `verbose()` inside the POST function.
+
+To determine the field id for a field of interest, click on it in the OpenET Data Exporer. The Field ID will be shown in the title bar of the popup box. The field ids must be formatted as `["001", "038", "132"]`; note that we must use backslashes in the code to escape the quotation marks.
+
+```{r POST request}
+response <- POST(url, add_headers(Authorization = api_key), encode = 'json', verbose(),
+                body = list(start_date              = '2018-01-01',     # yyyy-mm-dd
+                            end_date                = '2021-12-31',     # yyyy-mm-dd
+                            variable                = 'et',             # et, ndvi, etof, eto, pr
+                            units                   = 'english',        # metric, english
+                            feature_collection_name = 'CA',             # State abbreviation
+                            field_ids               = '[\"06152780\", \"06157059\"]', # List of field ids
+                            output_format           = 'csv',            # csv, json
+                            model                   = 'eemetric'))      # ensemble, eemetric, ssebop, geesebal, sims, disalexi, ptjpl
+```
+
+Again we can check the status:
+
+```{r Check status of POST request}
+http_status(response)       # check status of request
+```
+
+Since we specified `output_format = 'csv'`, the content of the response object is converted into an R dataframe:
+
+```{r Read the data}
+etdata <- content(response) # store the csv file in a new data frame
+etdata
+```
+
+### Cleaning and plotting the data
+
+We'll clean up the data by renaming some of the columns and creating some new date variables. We can also create a summarized version containing annual ET for each field. The `dplyr` library offers useful functions for all of these tasks.
+
+```{r Clean the data}
+etdata <- etdata %>%
+  rename(et_inches = data_value, field = feature_unique_id) %>%  # rename columns
+  mutate(year = year(start_date), month = month(start_date))     # create columns for month & year
+etdata
+
+et_annual_totals <- etdata %>%           # create a new data frame of total annual ET for each field
+  group_by(field, year) %>%              # for each field and year...
+  summarize(annual_et = sum(et_inches))  # ...sum all the monthly ET values
+et_annual_totals
+```
+
+Finally, we'll plot the data in ggplot:
+
+```{r Plot the data}
+etdata %>%
+  ggplot(aes(x = month, y = et_inches, color = as.factor(year))) + # create a plot
+  geom_line() +                                                    # make it a line plot 
+  facet_grid(field ~ .) +                                          # separate plots for each field
+  scale_x_continuous(breaks = 1:12) +                              # x-axis tick marks
+  scale_y_continuous(breaks = seq(0, 12, by=2)) +                  # y-axis tick marks
+  scale_color_discrete(name = 'Year') +                            # re-title the legend
+  labs(x = 'Month', y = 'ET (inches/month)',                       # label axes and plot
+       title = 'Actual ET on two fields in the Imperial Valley, 2018-21',
+       caption = 'Source: OpenET / eeMETRIC model') +
+  theme_light()
+```
