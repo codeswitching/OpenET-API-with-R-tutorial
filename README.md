@@ -1,7 +1,7 @@
 # OpenET API with R tutorial
 Tutorial on using the OpenET API with R scripts
 
-# **Update Jan 2023: The `openet` package now offers a more elegant way to access the OpenET API from within R. See my `openet` repository for more details.**
+**Update Jan 2023: The `openet` package now offers a more elegant way to access the OpenET API from within R. See my `openet` repository for more details.**
 
 This collection of R notebooks shows how to access the OpenET API using R scripts. More details about the API can be found at the [API Documentation](https://open-et.github.io/docs/build/html/index.html).
 
